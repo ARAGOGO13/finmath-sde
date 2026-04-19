@@ -1,0 +1,20 @@
+# Папки сборки
+cmake-build-*/
+build/
+out/
+
+# Графики — генерируются при запуске, не хранить в репо
+plots/
+
+# macOS
+.DS_Store
+
+# CLion
+.idea/
+
+# VSCode
+.vscode/
+
+# Скомпилированные бинарники
+sde_models
+sde_models.exe

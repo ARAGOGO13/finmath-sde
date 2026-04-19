@@ -1,0 +1,7 @@
+{
+  "name": "sde-finance-project",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "matplotplusplus"
+  ]
+}
