@@ -31,21 +31,32 @@ static void draw_paths_mean(axes_handle ax, const std::vector<double> &time,
                             const std::vector<double> &th_mean, const std::string &title_str,
                             const std::string &ylabel_str, std::array<float, 4> path_color) {
     hold(ax, true);
-    for (const auto &p: paths) {
-        auto l = plot(ax, time, p);
-        l->line_width(0.4);
-        l->color(path_color);
+    // ── Legend proxy lines (drawn FIRST → positional legend slots 1, 2, 3) ──
+    // legend(ax, {N labels}) assigns label[i] to the i-th plotted line;
+    // lines after the N-th simply have no legend entry (no "data" noise).
+    auto lmc_leg = plot(ax, time, mc_mean, "--");
+    lmc_leg->line_width(2.8); lmc_leg->color("red");
+    auto lth_leg = plot(ax, time, th_mean, "-");
+    lth_leg->line_width(2.8); lth_leg->color("black");
+    {   // one representative path as legend slot 3
+        auto l = plot(ax, time, paths[0]);
+        l->line_width(0.4); l->color(path_color);
     }
+    // ── All paths (slots 4..N+3 — no label) ──────────────────────────────────
+    for (size_t i = 1; i < paths.size(); ++i) {
+        auto l = plot(ax, time, paths[i]);
+        l->line_width(0.4); l->color(path_color);
+    }
+    // ── Mean lines redrawn ON TOP for visual prominence (no new legend slots) ─
     auto lmc = plot(ax, time, mc_mean, "--");
-    lmc->line_width(2.8);
-    lmc->color("red");
+    lmc->line_width(2.8); lmc->color("red");
     auto lth = plot(ax, time, th_mean, "-");
-    lth->line_width(2.8);
-    lth->color("black");
+    lth->line_width(2.8); lth->color("black");
     ax->title(title_str);
     ax->xlabel("t");
     ax->ylabel(ylabel_str);
-    legend(ax, {"paths", "MC mean", "theory"});
+    // Exactly 3 labels → assigned to first 3 lines (lmc_leg=red, lth_leg=black, path=color)
+    legend(ax, {"MC mean", "theory", "paths"});
     grid(ax, true);
 }
 
@@ -79,7 +90,7 @@ inline void plot_gbm_and_inverse(const std::vector<double> &time, const std::vec
         auto f = figure(true);
         f->size(1000, 600);
         draw_paths_mean(gca(), time, gbm_paths, gmc_m, gbm_mean_th, "GBM   E[S_t]   MC vs Theory", "S_t",
-                        {0.2f, 0.45f, 0.9f, 0.15f});
+                        {0.9f, 0.35f, 0.1f, 0.35f});
         save(base + "_mean.pdf");
         cla();
     }
@@ -94,7 +105,7 @@ inline void plot_gbm_and_inverse(const std::vector<double> &time, const std::vec
         auto f = figure(true);
         f->size(1000, 600);
         draw_paths_mean(gca(), time, inv_paths, imc_m, inv_mean_th, "InverseGBM (U=1/S)   E[U_t]   MC vs Theory", "U_t",
-                        {0.9f, 0.35f, 0.1f, 0.15f});
+                        {0.9f, 0.35f, 0.1f, 0.35f});
         save(base + "_inv_mean.pdf");
         cla();
     }
@@ -108,45 +119,50 @@ inline void plot_gbm_and_inverse(const std::vector<double> &time, const std::vec
 }
 
 inline void plot_convergence(const ConvergenceResult &res, const std::string &filename) {
+    // X-axis: log(N) = -log(dt)  (T=1 => N=1/dt)
+    // More steps (larger N) → x increases → error decreases
+    // Euler slope in log(N) space: -0.5;  Milshtein: -1.0
+    size_t n = res.log_dt.size();
+    std::vector<double> log_N(n);
+    for (size_t i = 0; i < n; ++i) log_N[i] = -res.log_dt[i];
+
     auto f = figure(true);
     f->size(1000, 680);
     auto ax = gca();
     hold(ax, true);
 
-    auto le = plot(ax, res.log_dt, res.log_euler, "o-");
-    le->line_width(2.5);
-    le->color("orange");
-    le->marker_size(9);
+    // ── Legend proxy lines (slots 1, 2) ─────────────────────────────────────
+    auto le_leg = plot(ax, log_N, res.log_euler, "o-");
+    le_leg->line_width(2.5); le_leg->color("orange"); le_leg->marker_size(9);
 
-    auto lm = plot(ax, res.log_dt, res.log_milshtein, "s-");
-    lm->line_width(2.5);
-    lm->color("green");
-    lm->marker_size(9);
+    auto lm_leg = plot(ax, log_N, res.log_milshtein, "s-");
+    lm_leg->line_width(2.5); lm_leg->color("green"); lm_leg->marker_size(9);
 
-    size_t n = res.log_dt.size();
+    // ── Theory reference lines (slots 3, 4) ─────────────────────────────────
+    // log(error) = -slope * log(N) + b  =>  fit intercepts b_e, b_m
     double b_e = 0.0, b_m = 0.0;
     for (size_t i = 0; i < n; ++i) {
-        b_e += res.log_euler[i] - 0.5 * res.log_dt[i];
-        b_m += res.log_milshtein[i] - 1.0 * res.log_dt[i];
+        b_e += res.log_euler[i]     + 0.5 * log_N[i];  // b = log_e + 0.5*log_N
+        b_m += res.log_milshtein[i] + 1.0 * log_N[i];
     }
     b_e /= n;
     b_m /= n;
-    double x0 = res.log_dt.front(), x1 = res.log_dt.back();
-    std::vector<double> tx = {x0, x1};
-    std::vector<double> tye = {0.5 * x0 + b_e, 0.5 * x1 + b_e};
-    std::vector<double> tym = {1.0 * x0 + b_m, 1.0 * x1 + b_m};
+    double x0 = log_N.front(), x1 = log_N.back();
+    std::vector<double> tx  = {x0, x1};
+    std::vector<double> tye = {-0.5 * x0 + b_e, -0.5 * x1 + b_e};
+    std::vector<double> tym = {-1.0 * x0 + b_m, -1.0 * x1 + b_m};
 
     auto lte = plot(ax, tx, tye, "--");
-    lte->line_width(1.8);
-    lte->color("orange");
+    lte->line_width(1.8); lte->color("orange");
     auto ltm = plot(ax, tx, tym, "--");
-    ltm->line_width(1.8);
-    ltm->color("green");
+    ltm->line_width(1.8); ltm->color("green");
 
-    ax->title("Strong convergence:  Euler vs Milshtein  (log-log)");
-    ax->xlabel("log(dt)");
-    ax->ylabel("log( E[|error|] )");
-    legend(ax, {"Euler (measured)", "Milshtein (measured)", "slope 0.5 (theory)", "slope 1.0 (theory)"});
+    ax->title("Strong convergence:  Euler vs Milshtein   "
+              "(N = steps, x=log N, y=log error)");
+    ax->xlabel("log(N)   [ N in {8, 16, 32, 64, 128, 256, 512} ]");
+    ax->ylabel("log( E[|X_exact - X_scheme|] )");
+    legend(ax, {"Euler", "Milshtein",
+                "slope -0.5 (Euler theory)", "slope -1.0 (Milshtein theory)"});
     grid(ax, true);
     save(filename);
     cla();
@@ -163,7 +179,7 @@ inline void plot_mean_reversion(const std::vector<double> &time, const std::vect
         auto f = figure(true);
         f->size(1000, 620);
         draw_paths_mean(gca(), time, paths, mc_mean, mean_th, model_name + "   E[X_t]   MC vs Theory", "X_t",
-                        {0.2f, 0.5f, 0.85f, 0.15f});
+                        {0.9f, 0.35f, 0.1f, 0.35f});
         save(base + "_mean.pdf");
         cla();
     }
