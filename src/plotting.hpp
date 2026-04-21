@@ -1,216 +1,276 @@
 #pragma once
+#include <cmath>
 #include <matplot/matplot.h>
 #include <string>
-#include <utility>
 #include <vector>
 #include "convergence_analyzer.hpp"
 
-// =============================================================================
-// plotting.hpp — все функции визуализации для презентации
-// =============================================================================
+using namespace matplot;
 
-// ---- Траектории СДУ ---------------------------------------------------------
-inline void plot_sde_paths(const std::vector<double> &time, const std::vector<std::vector<double>> &paths,
-                           const std::string &title_str, const std::string &color = "blue") {
-    using namespace matplot;
-    figure(true);
-    auto ax = gca();
+inline void compute_mc_moments(const std::vector<std::vector<double>> &paths, std::vector<double> &mc_mean,
+                               std::vector<double> &mc_var) {
+    if (paths.empty())
+        return;
+    size_t N = paths[0].size();
+    size_t M = paths.size();
+    mc_mean.assign(N, 0.0);
+    mc_var.assign(N, 0.0);
+    for (size_t t = 0; t < N; ++t) {
+        double s = 0.0, s2 = 0.0;
+        for (size_t j = 0; j < M; ++j) {
+            s += paths[j][t];
+            s2 += paths[j][t] * paths[j][t];
+        }
+        mc_mean[t] = s / M;
+        mc_var[t] = s2 / M - mc_mean[t] * mc_mean[t];
+    }
+}
+
+static void draw_paths_mean(axes_handle ax, const std::vector<double> &time,
+                            const std::vector<std::vector<double>> &paths, const std::vector<double> &mc_mean,
+                            const std::vector<double> &th_mean, const std::string &title_str,
+                            const std::string &ylabel_str, std::array<float, 4> path_color) {
     hold(ax, true);
     for (const auto &p: paths) {
-        auto line = plot(ax, time, p);
-        line->line_width(0.6);
-        line->color(color);
+        auto l = plot(ax, time, p);
+        l->line_width(0.4);
+        l->color(path_color);
     }
+    auto lmc = plot(ax, time, mc_mean, "--");
+    lmc->line_width(2.8);
+    lmc->color("red");
+    auto lth = plot(ax, time, th_mean, "-");
+    lth->line_width(2.8);
+    lth->color("black");
     ax->title(title_str);
-    ax->xlabel("Время t");
-    ax->ylabel("X_t");
-    grid(ax, on);
+    ax->xlabel("t");
+    ax->ylabel(ylabel_str);
+    legend(ax, {"paths", "MC mean", "theory"});
+    grid(ax, true);
 }
 
-// ---- Траектории с теоретическим средним ------------------------------------
-// ИСПРАВЛЕНО:
-// • траектория МК (представитель) и E[X_t] теперь на переднем плане (рисуются последними)
-// • легенда по-прежнему точно соответствует цветам
-inline void plot_paths_with_mean(const std::vector<double> &time, const std::vector<std::vector<double>> &paths,
-                                 const std::vector<double> &mean_theory, const std::string &title_str) {
-    using namespace matplot;
-    figure(true);
-    auto ax = gca();
+static void draw_var(axes_handle ax, const std::vector<double> &time, const std::vector<double> &mc_var,
+                     const std::vector<double> &th_var, const std::string &title_str, const std::string &ylabel_str) {
     hold(ax, true);
-
-    // 1. Dummy-линии для корректной легенды (рисуются первыми)
-    if (!paths.empty()) {
-        auto dummy_mk = plot(ax, time, paths[0]);
-        dummy_mk->line_width(2.5);
-        dummy_mk->color({0.2, 0.4, 0.8, 1.0});
-    }
-    auto dummy_mean = plot(ax, time, mean_theory, "-r");
-    dummy_mean->line_width(2.5);
-
-    // 2. Все полупрозрачные траектории МК — фон (будут под важными линиями)
-    for (const auto &p: paths) {
-        auto line = plot(ax, time, p);
-        line->line_width(0.8);
-        line->color({0.2, 0.4, 0.8, 0.5});
-    }
-
-    // 3. Реальные важные линии — НА ПЕРЕДНЕМ ПЛАНЕ (поверх всех)
-    if (!paths.empty()) {
-        auto real_mk = plot(ax, time, paths[0]);
-        real_mk->line_width(2.5);
-        real_mk->color({0.2, 0.4, 0.8, 1.0});
-    }
-    auto real_mean = plot(ax, time, mean_theory, "-r");
-    real_mean->line_width(2.5);
-
+    auto lmc = plot(ax, time, mc_var, "--");
+    lmc->line_width(2.8);
+    lmc->color("red");
+    auto lth = plot(ax, time, th_var, "-");
+    lth->line_width(2.8);
+    lth->color("black");
     ax->title(title_str);
-    ax->xlabel("Время t");
-    ax->ylabel("X_t");
-    legend({"Траектории МК", "E[X_t] теория"});
-    grid(ax, on);
+    ax->xlabel("t");
+    ax->ylabel(ylabel_str);
+    legend(ax, {"MC", "theory"});
+    grid(ax, true);
 }
 
-// ---- Процесс Пуассона -------------------------------------------------------
-inline void plot_poisson(const std::vector<std::pair<double, int>> &events, double T) {
-    using namespace matplot;
-    figure(true);
-    auto ax = gca();
-    std::vector<double> t_vals = {0.0};
-    std::vector<double> count_vals = {0.0};
-    for (const auto &e: events) {
-        t_vals.push_back(e.first);
-        count_vals.push_back(static_cast<double>(e.second));
-        t_vals.push_back(e.first);
-        count_vals.push_back(static_cast<double>(e.second) - 1.0);
+
+inline void plot_gbm_and_inverse(const std::vector<double> &time, const std::vector<std::vector<double>> &gbm_paths,
+                                 const std::vector<double> &gbm_mean_th, const std::vector<double> &gbm_var_th,
+                                 const std::vector<std::vector<double>> &inv_paths,
+                                 const std::vector<double> &inv_mean_th, const std::vector<double> &inv_var_th,
+                                 const std::string &base) {
+    std::vector<double> gmc_m, gmc_v, imc_m, imc_v;
+    compute_mc_moments(gbm_paths, gmc_m, gmc_v);
+    compute_mc_moments(inv_paths, imc_m, imc_v);
+
+    {
+        auto f = figure(true);
+        f->size(1000, 600);
+        draw_paths_mean(gca(), time, gbm_paths, gmc_m, gbm_mean_th, "GBM   E[S_t]   MC vs Theory", "S_t",
+                        {0.2f, 0.45f, 0.9f, 0.15f});
+        save(base + "_mean.pdf");
+        cla();
     }
-    t_vals.push_back(T);
-    count_vals.push_back(events.empty() ? 0.0 : static_cast<double>(events.back().second));
-
-    auto st = stairs(ax, t_vals, count_vals);
-    st->line_width(2.0);
-    st->color("blue");
-    ax->title("Процесс Пуассона — скачкообразный аналог броуновского движения (C.6)");
-    ax->xlabel("Время t");
-    ax->ylabel("N_t (число скачков)");
-    grid(ax, on);
+    {
+        auto f = figure(true);
+        f->size(1000, 550);
+        draw_var(gca(), time, gmc_v, gbm_var_th, "GBM   Var[S_t]   MC vs Theory", "Var[S_t]");
+        save(base + "_var.pdf");
+        cla();
+    }
+    {
+        auto f = figure(true);
+        f->size(1000, 600);
+        draw_paths_mean(gca(), time, inv_paths, imc_m, inv_mean_th, "InverseGBM (U=1/S)   E[U_t]   MC vs Theory", "U_t",
+                        {0.9f, 0.35f, 0.1f, 0.15f});
+        save(base + "_inv_mean.pdf");
+        cla();
+    }
+    {
+        auto f = figure(true);
+        f->size(1000, 550);
+        draw_var(gca(), time, imc_v, inv_var_th, "InverseGBM (U=1/S)   Var[U_t]   MC vs Theory", "Var[U_t]");
+        save(base + "_inv_var.pdf");
+        cla();
+    }
 }
 
-// ---- График сходимости Эйлер vs Мильштейн ----------------------------------
 inline void plot_convergence(const ConvergenceResult &res, const std::string &filename) {
-    using namespace matplot;
-    figure(true);
+    auto f = figure(true);
+    f->size(1000, 680);
     auto ax = gca();
     hold(ax, true);
 
-    auto euler_line = loglog(ax, res.dt_values, res.euler_errors, "-ob");
-    euler_line->line_width(2.0);
-    euler_line->marker_size(8);
+    auto le = plot(ax, res.log_dt, res.log_euler, "o-");
+    le->line_width(2.5);
+    le->color("orange");
+    le->marker_size(9);
 
-    auto milshtein_line = loglog(ax, res.dt_values, res.milshtein_errors, "-sr");
-    milshtein_line->line_width(2.0);
-    milshtein_line->marker_size(8);
+    auto lm = plot(ax, res.log_dt, res.log_milshtein, "s-");
+    lm->line_width(2.5);
+    lm->color("green");
+    lm->marker_size(9);
 
-    double dt0 = res.dt_values.front();
-    double err0_e = res.euler_errors.front();
-    double err0_m = res.milshtein_errors.front();
-
-    std::vector<double> ref_x, ref_half, ref_one;
-    for (double dt: res.dt_values) {
-        ref_x.push_back(dt);
-        ref_half.push_back(err0_e * std::pow(dt / dt0, 0.5));
-        ref_one.push_back(err0_m * std::pow(dt / dt0, 1.0));
+    size_t n = res.log_dt.size();
+    double b_e = 0.0, b_m = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        b_e += res.log_euler[i] - 0.5 * res.log_dt[i];
+        b_m += res.log_milshtein[i] - 1.0 * res.log_dt[i];
     }
+    b_e /= n;
+    b_m /= n;
+    double x0 = res.log_dt.front(), x1 = res.log_dt.back();
+    std::vector<double> tx = {x0, x1};
+    std::vector<double> tye = {0.5 * x0 + b_e, 0.5 * x1 + b_e};
+    std::vector<double> tym = {1.0 * x0 + b_m, 1.0 * x1 + b_m};
 
-    auto ref_half_line = loglog(ax, ref_x, ref_half, "--");
-    ref_half_line->color("cyan");
-    ref_half_line->line_width(1.2);
+    auto lte = plot(ax, tx, tye, "--");
+    lte->line_width(1.8);
+    lte->color("orange");
+    auto ltm = plot(ax, tx, tym, "--");
+    ltm->line_width(1.8);
+    ltm->color("green");
 
-    auto ref_one_line = loglog(ax, ref_x, ref_one, "--");
-    ref_one_line->color("magenta");
-    ref_one_line->line_width(1.2);
-
-    ax->title("Сходимость схем: Эйлер vs Мильштейн (GBM)");
-    ax->xlabel("Шаг dt (log scale)");
-    ax->ylabel("E[|X_T^exact - X_T^scheme|] (log scale)");
-    legend({"Эйлер (наклон≈0.5)", "Мильштейн (наклон≈1.0)", "ref: O(dt^0.5)", "ref: O(dt^1.0)"});
-    grid(ax, on);
-
+    ax->title("Strong convergence:  Euler vs Milshtein  (log-log)");
+    ax->xlabel("log(dt)");
+    ax->ylabel("log( E[|error|] )");
+    legend(ax, {"Euler (measured)", "Milshtein (measured)", "slope 0.5 (theory)", "slope 1.0 (theory)"});
+    grid(ax, true);
     save(filename);
     cla();
 }
 
-// ---- Сравнение траекторий двух схем на одном графике -----------------------
-// ИСПРАВЛЕНО: Эйлер, Мильштейн и E[X_t] теперь тоже на переднем плане
-inline void plot_scheme_comparison(const std::vector<double> &time, const std::vector<std::vector<double>> &euler_paths,
-                                   const std::vector<std::vector<double>> &milshtein_paths,
-                                   const std::vector<double> &exact_mean, const std::string &title_str) {
-    using namespace matplot;
-    figure(true);
-    auto ax = gca();
-    hold(ax, true);
 
-    // 1. Dummy-линии для легенды (будут скрыты)
-    if (!euler_paths.empty()) {
-        auto dummy_e = plot(ax, time, euler_paths[0]);
-        dummy_e->line_width(2.5);
-        dummy_e->color({0.2, 0.4, 0.9, 1.0});
-    }
-    if (!milshtein_paths.empty()) {
-        auto dummy_m = plot(ax, time, milshtein_paths[0]);
-        dummy_m->line_width(2.5);
-        dummy_m->color({0.9, 0.3, 0.2, 1.0});
-    }
-    auto dummy_mean = plot(ax, time, exact_mean, "-k");
-    dummy_mean->line_width(2.5);
+inline void plot_mean_reversion(const std::vector<double> &time, const std::vector<std::vector<double>> &paths,
+                                const std::vector<double> &mean_th, const std::vector<double> &var_th,
+                                const std::string &model_name, const std::string &base) {
+    std::vector<double> mc_mean, mc_var;
+    compute_mc_moments(paths, mc_mean, mc_var);
 
-    // 2. Все полупрозрачные траектории — фон
-    for (const auto &p: euler_paths) {
-        auto line = plot(ax, time, p);
-        line->line_width(0.7);
-        line->color({0.2, 0.4, 0.9, 0.4});
+    {
+        auto f = figure(true);
+        f->size(1000, 620);
+        draw_paths_mean(gca(), time, paths, mc_mean, mean_th, model_name + "   E[X_t]   MC vs Theory", "X_t",
+                        {0.2f, 0.5f, 0.85f, 0.15f});
+        save(base + "_mean.pdf");
+        cla();
     }
-    for (const auto &p: milshtein_paths) {
-        auto line = plot(ax, time, p);
-        line->line_width(0.7);
-        line->color({0.9, 0.3, 0.2, 0.4});
+    {
+        auto f = figure(true);
+        f->size(1000, 560);
+        draw_var(gca(), time, mc_var, var_th, model_name + "   Var[X_t]   MC vs Theory", "Var[X_t]");
+        save(base + "_var.pdf");
+        cla();
     }
-
-    // 3. Реальные важные линии — НА ПЕРЕДНЕМ ПЛАНЕ
-    if (!euler_paths.empty()) {
-        auto real_e = plot(ax, time, euler_paths[0]);
-        real_e->line_width(2.5);
-        real_e->color({0.2, 0.4, 0.9, 1.0});
-    }
-    if (!milshtein_paths.empty()) {
-        auto real_m = plot(ax, time, milshtein_paths[0]);
-        real_m->line_width(2.5);
-        real_m->color({0.9, 0.3, 0.2, 1.0});
-    }
-    auto real_mean = plot(ax, time, exact_mean, "-k");
-    real_mean->line_width(2.5);
-
-    ax->title(title_str);
-    ax->xlabel("Время t");
-    ax->ylabel("X_t");
-    legend({"Эйлер", "Мильштейн", "E[X_t] теория"});
-    grid(ax, on);
 }
 
-// ---- Гистограмма распределения X_T ------------------------------------------
-inline void plot_distribution(const std::vector<double> &samples, double theory_mean, double theory_std,
-                              const std::string &title_str) {
-    using namespace matplot;
-    figure(true);
-    auto ax = gca();
+inline void plot_poisson_full(const std::vector<double> &time_grid,
+                              const std::vector<std::vector<std::vector<double>>> &all_paths,
+                              const std::vector<double> &lambdas, const std::string &base) {
+    std::vector<std::string> cols = {"blue", "red", "green"};
+    std::vector<std::string> labels = {"lambda=2", "lambda=5", "lambda=15"};
 
-    hist(ax, samples, 50);
-    ax->title(title_str);
-    ax->xlabel("X_T");
-    ax->ylabel("Частота");
+    {
+        auto f = figure(true);
+        f->size(1100, 500);
+        auto ax = gca();
+        hold(ax, true);
+        for (size_t li = 0; li < lambdas.size(); ++li) {
+            if (all_paths[li].empty())
+                continue;
+            auto l = stairs(ax, time_grid, all_paths[li][0]);
+            l->line_width(2.2);
+            l->color(cols[li]);
+        }
+        ax->title("Poisson sample paths");
+        ax->xlabel("t");
+        ax->ylabel("N_t");
+        legend(ax, labels);
+        grid(ax, true);
+        save(base + "_paths.pdf");
+        cla();
+    }
 
-    hold(ax, true);
-    std::string full_title = title_str + "  |  E[X_T] теория=" + std::to_string(theory_mean).substr(0, 6) +
-                             ", std=" + std::to_string(theory_std).substr(0, 5);
-    ax->title(full_title);
-    grid(ax, on);
+    size_t T_steps = time_grid.size();
+    std::vector<std::vector<double>> mc_means(lambdas.size());
+    std::vector<std::vector<double>> mc_vars(lambdas.size());
+    for (size_t li = 0; li < lambdas.size(); ++li) {
+        size_t M = all_paths[li].size();
+        mc_means[li].assign(T_steps, 0.0);
+        mc_vars[li].assign(T_steps, 0.0);
+        for (size_t j = 0; j < M; ++j)
+            for (size_t t = 0; t < T_steps; ++t)
+                mc_means[li][t] += all_paths[li][j][t];
+        for (auto &v: mc_means[li])
+            v /= M;
+        for (size_t j = 0; j < M; ++j)
+            for (size_t t = 0; t < T_steps; ++t) {
+                double d = all_paths[li][j][t] - mc_means[li][t];
+                mc_vars[li][t] += d * d;
+            }
+        for (auto &v: mc_vars[li])
+            v /= M;
+    }
+
+    {
+        auto f = figure(true);
+        f->size(1100, 520);
+        auto ax = gca();
+        hold(ax, true);
+        for (size_t li = 0; li < lambdas.size(); ++li) {
+            std::vector<double> theory(T_steps);
+            for (size_t t = 0; t < T_steps; ++t)
+                theory[t] = lambdas[li] * time_grid[t];
+            auto lm = plot(ax, time_grid, mc_means[li], "--");
+            lm->line_width(2.2);
+            lm->color(cols[li]);
+            auto lt = plot(ax, time_grid, theory, "-");
+            lt->line_width(1.6);
+            lt->color(cols[li]);
+        }
+        ax->title("E[N_t]:  MC (dashed)  vs  lambda*t (solid)");
+        ax->xlabel("t");
+        ax->ylabel("E[N_t]");
+        legend(ax, {"MC  l=2", "th  l=2", "MC  l=5", "th  l=5", "MC  l=15", "th  l=15"});
+        grid(ax, true);
+        save(base + "_mean.pdf");
+        cla();
+    }
+
+    {
+        auto f = figure(true);
+        f->size(1100, 520);
+        auto ax = gca();
+        hold(ax, true);
+        for (size_t li = 0; li < lambdas.size(); ++li) {
+            std::vector<double> theory(T_steps);
+            for (size_t t = 0; t < T_steps; ++t)
+                theory[t] = lambdas[li] * time_grid[t];
+            auto lm = plot(ax, time_grid, mc_vars[li], "--");
+            lm->line_width(2.2);
+            lm->color(cols[li]);
+            auto lt = plot(ax, time_grid, theory, "-");
+            lt->line_width(1.6);
+            lt->color(cols[li]);
+        }
+        ax->title("Var[N_t]:  MC (dashed)  vs  lambda*t (solid)    [E=Var for Poisson]");
+        ax->xlabel("t");
+        ax->ylabel("Var[N_t]");
+        legend(ax, {"MC  l=2", "th  l=2", "MC  l=5", "th  l=5", "MC  l=15", "th  l=15"});
+        grid(ax, true);
+        save(base + "_var.pdf");
+        cla();
+    }
 }
