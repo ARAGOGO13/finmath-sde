@@ -122,12 +122,34 @@ int main() {
     std::system("mkdir -p ../plots 2>/dev/null");
 
     const double T      = 1.0;
-    const int    N_steps = 100;
-    const int    N_paths = 1000;
-    const int    N_mc    = 20000;
+    const int    N_steps = 5000;
+    const int    N_paths = 500;
+    const int    N_mc    = 2000;
 
     auto tv = linspace(0.0, T, N_steps + 1);
     vector<double> time_std(tv.begin(), tv.end());
+
+    // =========================================================================
+    // Shared Y-range for C4 mean plots: InvGBM + Vasicek + CIR (all except GBM)
+    // Computed analytically from model parameters so all three use the same axis
+    // =========================================================================
+    std::array<double,2> c4_mean_shared_ylim;
+    {
+        // InvGBM: U0=0.01, mu_star=sigma^2-mu=-0.01, sigma=0.20
+        const double U0_a = 1.0/100.0, sig_a = 0.20, mu_star_a = sig_a*sig_a - 0.05;
+        double sd_inv = U0_a * std::sqrt(std::exp(sig_a*sig_a*T) - 1.0);
+        double inv_hi = U0_a * std::exp(mu_star_a*T) + 3.0*sd_inv;
+        double inv_lo = std::max(0.0, U0_a * std::exp(mu_star_a*T) - 3.0*sd_inv);
+        // Vasicek/CIR: theta=2, mu=0.05, sigma=0.02, X0=0.03 (stationary std = sigma/sqrt(2*theta))
+        const double theta_a = 2.0, mu_a = 0.05, sig_vc = 0.02, x0_a = 0.03;
+        double sigma_stat = sig_vc / std::sqrt(2.0*theta_a);
+        double vc_hi = mu_a + 3.0*sigma_stat;
+        double vc_lo = std::max(0.0, x0_a - 3.0*sigma_stat);
+        double y_lo = std::min(inv_lo, vc_lo);
+        double y_hi = std::max(inv_hi, vc_hi);
+        double margin = 0.08*(y_hi - y_lo);
+        c4_mean_shared_ylim = {std::max(0.0, y_lo - margin), y_hi + margin};
+    }
 
     // =========================================================================
     // GBM + InverseGBM
@@ -173,7 +195,11 @@ int main() {
 
         vector<vector<double>> gp(gbm_p.begin(), gbm_p.begin()+N_paths);
         vector<vector<double>> ip(inv_p.begin(), inv_p.begin()+N_paths);
-        plot_gbm_and_inverse(time_std, gp,gm,gv, ip,im,iv, "../plots/C4_gbm");
+        plot_gbm_and_inverse(time_std, gp,gm,gv, ip,im,iv,
+            "dS=mu*S*dt+sigma*S*dW  [mu=0.05, sigma=0.20, S0=100]",
+            "dU=(sigma^2-mu)*U*dt-sigma*U*dW  [mu*=-0.01, sigma=0.20, U0=0.01]",
+            c4_mean_shared_ylim,
+            "../plots/C4_gbm");
 
         vector<double> gmc_m,gmc_v,imc_m,imc_v;
         compute_mc_moments(gbm_p,gmc_m,gmc_v);
@@ -241,7 +267,9 @@ int main() {
         }
 
         vector<vector<double>> pp(all.begin(), all.begin()+N_paths);
-        plot_mean_reversion(time_std, pp, mth, vth, "Vasicek", "../plots/C4_vasicek");
+        plot_mean_reversion(time_std, pp, mth, vth, "Vasicek",
+            "dX=theta*(mu-X)*dt+sigma*dW  [theta=2.0, mu=0.05, sigma=0.02, X0=0.03]",
+            c4_mean_shared_ylim, "../plots/C4_vasicek");
 
         vector<double> mc_m, mc_v;
         compute_mc_moments(all, mc_m, mc_v);
@@ -287,7 +315,9 @@ int main() {
         }
 
         vector<vector<double>> pp(all.begin(), all.begin()+N_paths);
-        plot_mean_reversion(time_std, pp, mth, vth, "CIR", "../plots/C4_cir");
+        plot_mean_reversion(time_std, pp, mth, vth, "CIR",
+            "dX=theta*(mu-X)*dt+sigma*sqrt(X)*dW  [theta=2.0, mu=0.05, sigma=0.02, X0=0.03]",
+            c4_mean_shared_ylim, "../plots/C4_cir");
 
         vector<double> mc_m, mc_v;
         compute_mc_moments(all, mc_m, mc_v);
@@ -343,7 +373,7 @@ int main() {
         const double S0=100.0,  U0=50.0;    // V0 = 2.0
         const int    N_ratio_steps = 5000;
         const int    N_ratio_mc    = 30000;
-        const int    N_ratio_plot  = 300;
+        const int    N_ratio_plot  = 500;
 
         vector<double> rhos = {-1.0, -0.5, 0.0, 0.5, 1.0};
 
