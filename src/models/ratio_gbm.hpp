@@ -131,6 +131,9 @@ public:
             res.theory_var [i] = theory_var_at (time_grid[i], rho);
         }
 
+
+
+
         int save = std::min(N_plot_paths, N_mc);
         res.paths.assign(all_paths.begin(), all_paths.begin() + save);
 

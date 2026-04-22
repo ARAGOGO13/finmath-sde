@@ -149,6 +149,19 @@ echo ""
 echo "── C_ratio: Var[V_t] все rho (уже один файл) ────────────────────────────────"
 [ -f "C_ratio_var_all.pdf" ] && echo "  ✓  C_ratio_var_all.pdf  (без изменений)"
 
+echo ""
+echo "── G1: Girsanov verification (2 графика → склейка) ───────────────────────────"
+merge_and_remove "G1_girsanov_merged.pdf" \
+    "G1_girsanov_prices.pdf" \
+    "G1_girsanov_variance.pdf"
+
+echo ""
+echo "── G2: Delta hedging (3 графика → склейка) ──────────────────────────────────"
+merge_and_remove "G2_hedging_merged.pdf" \
+    "G2_hedging_pnl_hist.pdf" \
+    "G2_hedging_std_vs_dt.pdf" \
+    "G2_hedging_vol_mismatch.pdf"
+
 # ── Итог ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "📁 Итоговые файлы в $PLOTS_DIR:"

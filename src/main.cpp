@@ -1,10 +1,15 @@
 #include "convergence_analyzer.hpp"
+#include "girsanov_experiment.hpp"
+#include "hedging_experiment.hpp"
+#include "models/black_scholes.hpp"
 #include "models/cir.hpp"
 #include "models/geometric_brownian_motion.hpp"
 #include "models/ornstein_uhlenbeck.hpp"
 #include "models/poisson_process.hpp"
 #include "models/ratio_gbm.hpp"
 #include "monte_carlo_engine.hpp"
+#include "plot_girsanov.hpp"
+#include "plot_hedging.hpp"
 #include "plot_ratio.hpp"
 #include "plotting.hpp"
 
@@ -122,8 +127,8 @@ int main() {
     std::system("mkdir -p ../plots 2>/dev/null");
 
     const double T      = 1.0;
-    const int    N_steps = 5000;
-    const int    N_paths = 500;
+    const int    N_steps = 50;
+    const int    N_paths = 50;
     const int    N_mc    = 2000;
 
     auto tv = linspace(0.0, T, N_steps + 1);
@@ -371,9 +376,9 @@ int main() {
         const double mu_S=0.08, sigma_S=0.20;
         const double mu_U=0.05, sigma_U=0.15;
         const double S0=100.0,  U0=50.0;    // V0 = 2.0
-        const int    N_ratio_steps = 5000;
+        const int    N_ratio_steps = 50;
         const int    N_ratio_mc    = 30000;
-        const int    N_ratio_plot  = 500;
+        const int    N_ratio_plot  = 50;
 
         vector<double> rhos = {-1.0, -0.5, 0.0, 0.5, 1.0};
 
@@ -405,12 +410,140 @@ int main() {
         });
     }
 
+    // =========================================================================
+    // G1 — Проверка теоремы Гирсанова: три оценщика одной цены колла
+    // =========================================================================
+    section("Girsanov theorem — three estimators of the same call price",
+            "BS analytic  |  MC under Q (risk-neutral)  |  MC under P (weighted)");
+    {
+        const double r = 0.05, sigma = 0.20, T_g = 1.0, K = 100.0, S0_g = 100.0;
+        const int    N_mc_g = 100000;
+
+        // Сетка physical drift'ов; lambda = (mu-r)/sigma в диапазоне [-0.75, +1.75]
+        vector<double> mu_grid;
+        for (int i = 0; i < 15; ++i)
+            mu_grid.push_back(-0.10 + i * (0.50 / 14.0));
+
+        GirsanovExperiment exp_g(r, sigma, T_g, K, S0_g, N_mc_g);
+        auto pts = exp_g.run(mu_grid, 42);
+
+        plot_girsanov_prices  (pts, "../plots/G1_girsanov_prices.pdf");
+        plot_girsanov_variance(pts, "../plots/G1_girsanov_variance.pdf",
+                               T_g, r, sigma, K, S0_g);
+
+        cout << "\n  " << A::B
+             << pad("lambda", 9) << pad("BS", 10) << pad("Q-MC", 10)
+             << pad("P-MC", 10)  << pad("Q-err", 9) << pad("P-err", 9)
+             << pad("Var ratio", 10) << A::R << "\n"
+             << "  " << string(67, '-') << "\n";
+        for (const auto& p : pts) {
+            cout << "  " << A::D  << fixed << setprecision(3)
+                 << pad(to_string(p.lambda).substr(0,6), 9) << A::R
+                 << A::GR << pad(to_string(p.bs_price).substr(0,7), 10) << A::R
+                 << A::GR << pad(to_string(p.rn_price).substr(0,7), 10) << A::R
+                 << A::CY << pad(to_string(p.p_price ).substr(0,7), 10) << A::R
+                 << A::D  << pad(to_string(p.rn_std_err).substr(0,6), 9) << A::R
+                 << A::D  << pad(to_string(p.p_std_err ).substr(0,6), 9) << A::R
+                 << A::YL << pad(to_string(p.variance_ratio).substr(0,7), 10) << A::R << "\n";
+        }
+        print_saved({"G1_girsanov_prices.pdf", "G1_girsanov_variance.pdf"});
+    }
+
+    // =========================================================================
+    // G2 — Дискретный delta-hedging: распределение P&L, сходимость, vol mismatch
+    // =========================================================================
+    section("Discrete delta-hedging of a short call",
+            "premium received by BS(sigma_impl), rebalanced N times, P&L at T");
+    {
+        HedgingConfig cfg;  // defaults: r=0.05, T=1, K=100, S0=100, sigma=0.20
+        DeltaHedgingExperiment exp_h(cfg);
+
+        // ---- Эксперимент A: гистограммы P&L для разных N_rebal ----
+        vector<int> N_rebal_hist = {10, 50, 250, 1000};
+        vector<HedgingPnLResult> hist_results;
+        vector<string>           hist_labels;
+        for (int Nr : N_rebal_hist) {
+            auto r = exp_h.simulate(Nr, 20000, 42u + (unsigned)Nr);
+            hist_results.push_back(std::move(r));
+            hist_labels.push_back("N=" + std::to_string(Nr));
+        }
+        plot_hedging_pnl_histograms(hist_results, hist_labels,
+            "Hedging P&L distribution  (sigma_real = sigma_impl = 0.20)",
+            "../plots/G2_hedging_pnl_hist.pdf");
+
+        cout << "\n  " << A::B
+             << pad("N_rebal", 10) << pad("mean(P&L)", 14)
+             << pad("std(P&L)",  14) << pad("q05", 10) << pad("q95", 10)
+             << A::R << "\n"
+             << "  " << string(56, '-') << "\n";
+        for (size_t i = 0; i < hist_results.size(); ++i) {
+            const auto& r = hist_results[i];
+            cout << "  " << A::D << pad(std::to_string(r.N_rebal), 10) << A::R
+                 << A::GR << pad(to_string(r.mean_pnl).substr(0,10), 14) << A::R
+                 << A::CY << pad(to_string(r.std_pnl).substr(0,10),  14) << A::R
+                 << A::D  << pad(to_string(r.q05).substr(0,8), 10) << A::R
+                 << A::D  << pad(to_string(r.q95).substr(0,8), 10) << A::R << "\n";
+        }
+
+        // ---- Эксперимент B: std(P&L) ~ sqrt(dt) в log-log ----
+        vector<int> N_rebal_scan = {4, 8, 16, 32, 64, 128, 256, 512, 1024};
+        auto scan = exp_h.scan_rebalance_frequency(N_rebal_scan, 10000, 1000u);
+        plot_hedging_std_vs_dt(scan, "../plots/G2_hedging_std_vs_dt.pdf");
+
+        cout << "\n  " << A::B << "std(P&L) ~ dt^alpha   measured alpha = "
+             << A::GR << fixed << setprecision(3) << scan.slope_log_std_vs_log_dt
+             << A::R  << A::D  << "   theory 0.5" << A::R << "\n";
+
+        // ---- Эксперимент C: vol mismatch ----
+        vector<double> sigma_real_list = {0.10, 0.14, 0.17, 0.20, 0.23, 0.26, 0.30};
+        vector<HedgingPnLResult> mismatch_results;
+        for (double sr : sigma_real_list) {
+            HedgingConfig cfg2 = cfg;
+            cfg2.sigma_real = sr;
+            cfg2.sigma_impl = 0.20;
+            DeltaHedgingExperiment exp_c(cfg2);
+            auto r = exp_c.simulate(250, 20000,
+                42u + (unsigned)(sr * 1000));
+            mismatch_results.push_back(std::move(r));
+        }
+        plot_hedging_vol_mismatch(mismatch_results, sigma_real_list, 0.20,
+                                  100.0, 100.0, 1.0, 0.05,
+                                  "../plots/G2_hedging_vol_mismatch.pdf");
+
+        // Теоретическое mean = 0.5 * Γ_ATM * S0² * (sigma_impl² - sigma_real²) * T
+        // (знак: продавец колла теряет при sr > si, т.к. actual vol выше implied)
+        const double d1_atm    = ((0.05 + 0.5*0.20*0.20)*1.0) / (0.20*std::sqrt(1.0));
+        const double k_sqrt2pi = 2.5066282746310002416;
+        const double phi_d1    = std::exp(-0.5*d1_atm*d1_atm) / k_sqrt2pi;
+        const double gamma_atm = phi_d1 / (100.0 * 0.20 * std::sqrt(1.0));
+
+        cout << "\n  " << A::B
+             << pad("sigma_real", 13) << pad("mean(P&L)", 14)
+             << pad("std(P&L)", 14) << pad("theory mean", 14) << A::R << "\n"
+             << "  " << string(55, '-') << "\n";
+        for (size_t i = 0; i < mismatch_results.size(); ++i) {
+            double sr           = sigma_real_list[i];
+            double theory_mean  = 0.5 * gamma_atm * 100.0 * 100.0
+                                * (0.20*0.20 - sr*sr) * 1.0;
+            const auto& r = mismatch_results[i];
+            cout << "  " << A::D << pad(to_string(sr).substr(0,6), 13) << A::R
+                 << A::GR << pad(to_string(r.mean_pnl).substr(0,10),  14) << A::R
+                 << A::CY << pad(to_string(r.std_pnl ).substr(0,10),  14) << A::R
+                 << A::YL << pad(to_string(theory_mean).substr(0,10), 14) << A::R << "\n";
+        }
+
+        print_saved({"G2_hedging_pnl_hist.pdf",
+                     "G2_hedging_std_vs_dt.pdf",
+                     "G2_hedging_vol_mismatch.pdf"});
+    }
+
     cout << "\n  " << A::D << "All plots saved to ../plots/" << A::R << "\n";
 
     cout << "\n  " << A::D << "Merging plots..." << A::R << "\n";
     std::system("bash ../src/merge_plots.sh");
 
     return 0;
+
 
 
 
