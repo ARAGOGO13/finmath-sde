@@ -1,4 +1,3 @@
-```markdown
 # SDE Models — Numerical Simulation of Stochastic Differential Equations
 
 Реализация численного моделирования стохастических дифференциальных уравнений из приложения C книги **Brigo & Mercurio "Interest Rate Models — Theory and Practice"** с дополнительными финансовыми экспериментами (теорема Гирсанова, дискретное дельта-хеджирование).
