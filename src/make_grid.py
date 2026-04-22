@@ -20,7 +20,7 @@ from PIL import Image
 
 
 DPI = 250
-GAP = 8  # px between cells
+GAP = 8
 
 
 def pdf_to_image(pdf_path: str, tmpdir: str) -> Image.Image:
@@ -115,7 +115,6 @@ def main():
     else:
         input_files = rest
 
-    # Auto-detect layout
     if layout is None:
         layout = '2x2+1' if len(input_files) == 5 else '2x2'
 

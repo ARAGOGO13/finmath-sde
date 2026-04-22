@@ -5,42 +5,48 @@
 #include <string>
 
 // =============================================================================
-// RatioGBM — V_t = S_t / U_t
+// Модель отношения двух коррелированных геометрических броуновских движений
 //
-// dS = mu_S * S * dt + sigma_S * S * dW1
-// dU = mu_U * U * dt + sigma_U * U * dW2
-// dW1 * dW2 = rho * dt
+// Пусть S_t и U_t – два актива, каждый из которых следует GBM:
+//   dS_t = μ_S S_t dt + σ_S S_t dW_t^(1)
+//   dU_t = μ_U U_t dt + σ_U U_t dW_t^(2)
+//   d⟨W^(1), W^(2)⟩_t = ρ dt
 //
-// По формуле Ито (задача 3):
-//   dV = mu_V * V * dt + sigma_V * V * dW
+// Тогда процесс V_t = S_t / U_t по лемме Ито удовлетворяет СДУ:
+//   dV_t = μ_V V_t dt + σ_V V_t dW_t
 //
-// где:
-//   mu_V    = mu_S - mu_U + sigma_U^2 - rho * sigma_S * sigma_U
-//   sigma_V = sqrt(sigma_S^2 + sigma_U^2 - 2*rho*sigma_S*sigma_U)
+// где эффективные параметры:
+//   μ_V   = μ_S - μ_U + σ_U² - ρ σ_S σ_U
+//   σ_V²  = σ_S² + σ_U² - 2 ρ σ_S σ_U
+//   W_t   – стандартное броуновское движение
 //
-// Коррелированные BM генерируются разложением Холецкого:
-//   dW1 = sqrt(dt) * Z1
-//   dW2 = sqrt(dt) * (rho * Z1 + sqrt(1-rho^2) * Z2)
+// Класс предоставляет аналитические моменты V_t и метод Монте-Карло для
+// симуляции траекторий с заданной корреляцией ρ.
 // =============================================================================
 
+#include <vector>
+#include <random>
+#include <cmath>
+#include <string>
+
 struct RatioGBMResult {
-    double rho;
-    double mu_V;
-    double sigma_V;
+    double rho;                     // коэффициент корреляции
+    double mu_V;                    // эффективный дрейф V
+    double sigma_V;                 // эффективная волатильность V
 
-    std::vector<std::vector<double>> paths;
+    std::vector<std::vector<double>> paths;   // сохранённые траектории для визуализации
 
-    std::vector<double> mc_mean;
-    std::vector<double> mc_var;
-    std::vector<double> theory_mean;
-    std::vector<double> theory_var;
+    std::vector<double> mc_mean;    // Монте-Карло оценка E[V_t] по шагам времени
+    std::vector<double> mc_var;     // Монте-Карло оценка Var[V_t] по шагам времени
+    std::vector<double> theory_mean;// теоретическое E[V_t] по шагам времени
+    std::vector<double> theory_var; // теоретическое Var[V_t] по шагам времени
 };
 
 class RatioGBM {
 public:
-    double mu_S, sigma_S;
-    double mu_U, sigma_U;
-    double V0;   // S0 / U0
+    double mu_S, sigma_S;   // параметры процесса S
+    double mu_U, sigma_U;   // параметры процесса U
+    double V0;              // начальное значение V0 = S0 / U0
 
     RatioGBM(double mu_S, double sigma_S,
              double mu_U, double sigma_U,
@@ -49,29 +55,35 @@ public:
         , mu_U(mu_U), sigma_U(sigma_U)
         , V0(S0 / U0) {}
 
-    // Теоретический эффективный дрейф V_t
+    // Эффективный дрейф процесса V_t при заданной корреляции ρ
     double theory_mu_V(double rho) const {
-        return mu_S - mu_U + sigma_U*sigma_U - rho*sigma_S*sigma_U;
+        return mu_S - mu_U + sigma_U * sigma_U - rho * sigma_S * sigma_U;
     }
 
-    // Теоретическая эффективная волатильность V_t
+    // Эффективная волатильность процесса V_t при заданной корреляции ρ
     double theory_sigma_V(double rho) const {
-        double s2 = sigma_S*sigma_S + sigma_U*sigma_U - 2*rho*sigma_S*sigma_U;
+        double s2 = sigma_S * sigma_S + sigma_U * sigma_U - 2 * rho * sigma_S * sigma_U;
         return std::sqrt(std::max(s2, 0.0));
     }
 
-    // E[V_t] = V0 * exp(mu_V * t)
+    // Теоретическое математическое ожидание V_t в момент времени t
     double theory_mean_at(double t, double rho) const {
         return V0 * std::exp(theory_mu_V(rho) * t);
     }
 
-    // Var[V_t] = V0^2 * exp(2*mu_V*t) * (exp(sigma_V^2*t) - 1)
+    // Теоретическая дисперсия V_t в момент времени t
     double theory_var_at(double t, double rho) const {
         double mu_v  = theory_mu_V(rho);
         double sig_v = theory_sigma_V(rho);
-        return V0*V0 * std::exp(2*mu_v*t) * (std::exp(sig_v*sig_v*t) - 1.0);
+        return V0 * V0 * std::exp(2 * mu_v * t) * (std::exp(sig_v * sig_v * t) - 1.0);
     }
 
+    // Симуляция траекторий V_t методом Монте-Карло с использованием схемы Мильштейна.
+    // rho            – корреляция между броуновскими движениями S и U
+    // time_grid      – сетка моментов времени, включая 0 и T
+    // N_mc           – число сценариев для оценки моментов
+    // N_plot_paths   – число траекторий, сохраняемых для визуализации
+    // seed           – зерно генератора псевдослучайных чисел
     RatioGBMResult simulate(
         double rho,
         const std::vector<double>& time_grid,

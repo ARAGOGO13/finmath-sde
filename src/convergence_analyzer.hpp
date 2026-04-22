@@ -1,11 +1,14 @@
 #pragma once
+
 #include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <random>
 #include <vector>
+#include <sstream>
 #include "monte_carlo_engine.hpp"
 #include "sde_base.hpp"
+#include "console_utils.hpp"
 
 struct ConvergenceResult {
     std::vector<double> dt_values;
@@ -24,20 +27,9 @@ public:
         num_paths_(num_paths), steps_list_(std::move(steps_list)) {}
 
     ConvergenceResult analyze_gbm(double mu, double sigma, double x0, double T) const {
-        const std::string RST = "\033[0m";
-        const std::string BOLD = "\033[1m";
-        const std::string DIM = "\033[2m";
-        const std::string CYAN = "\033[36m";
-        const std::string GREEN = "\033[32m";
-        const std::string YELLOW = "\033[33m";
-
         ConvergenceResult result;
         std::mt19937 gen(42);
         std::normal_distribution<double> nd(0.0, 1.0);
-
-        std::cout << "\n  " << BOLD << std::left << std::setw(10) << "Steps" << std::setw(14) << "dt" << std::setw(18)
-                  << "Euler error" << std::setw(18) << "Milshtein error" << RST << "\n"
-                  << "  " << std::string(58, '-') << "\n";
 
         for (int N: steps_list_) {
             double dt = T / N;
@@ -77,14 +69,33 @@ public:
             result.log_dt.push_back(std::log(dt));
             result.log_euler.push_back(std::log(euler_err));
             result.log_milshtein.push_back(std::log(milshtein_err));
-
-            std::cout << "  " << DIM << std::left << std::setw(10) << N << std::scientific << std::setprecision(3)
-                      << std::setw(14) << dt << RST << YELLOW << std::setw(18) << euler_err << RST << GREEN
-                      << std::setw(18) << milshtein_err << RST << "\n";
         }
 
+        // Вывод таблицы
+        std::cout << "\n";
+        std::vector<std::string> headers = {"Steps", "dt", "Euler error", "Milshtein error"};
+        std::vector<int> widths = {10, 14, 18, 18};
+        print_table_header(headers, widths);
+
+        for (size_t i = 0; i < steps_list_.size(); ++i) {
+            std::ostringstream ss_steps, ss_dt, ss_eu, ss_mil;
+            ss_steps << steps_list_[i];
+            ss_dt << std::scientific << std::setprecision(3) << result.dt_values[i];
+            ss_eu << result.euler_errors[i];
+            ss_mil << result.milshtein_errors[i];
+            print_table_row({ss_steps.str(), ss_dt.str(), ss_eu.str(), ss_mil.str()}, widths);
+        }
+
+        // Наклоны
         result.euler_slope = linear_regression_slope(result.log_dt, result.log_euler);
         result.milshtein_slope = linear_regression_slope(result.log_dt, result.log_milshtein);
+
+        std::cout << "\n  log-log slopes\n";
+        print_separator(44);
+        std::cout << "  " << pad("Euler", 14) << std::fixed << std::setprecision(3)
+                  << std::setw(8) << result.euler_slope << "   theory 0.5\n";
+        std::cout << "  " << pad("Milshtein", 14) << std::setw(8) << result.milshtein_slope
+                  << "   theory 1.0\n";
 
         return result;
     }

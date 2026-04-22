@@ -7,9 +7,38 @@
 
 using namespace matplot;
 
-// G1: три оценщика цены колла vs lambda = (mu-r)/sigma.
-// Стиль: аналитика — чёрный solid, Q-MC — красный dashed + error bars,
-//        P-MC — синий dashed + error bars (±1.96 * std_err).
+// =============================================================================
+// Визуализация результатов эксперимента по проверке теоремы Гирсанова
+//
+// Файл содержит функции для построения графиков, иллюстрирующих численную
+// проверку теоремы Гирсанова и анализ «стоимости смены меры». Используется
+// библиотека Matplot++ (matplot). Результаты сохраняются в формате PDF.
+//
+// Две основные функции:
+//   • plot_girsanov_prices   – сравнение трёх оценщиков цены колла
+//   • plot_girsanov_variance – отношение дисперсий оценок P-MC и Q-MC
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// График сравнения трёх оценщиков цены колла
+// -----------------------------------------------------------------------------
+// Строит зависимость цены колла от рыночной цены риска λ = (μ - r)/σ.
+// На одном полотне отображаются:
+//   • аналитическая цена Блэка–Шоулза (чёрная сплошная линия) – эталон,
+//     не зависящий от μ;
+//   • оценка Монте-Карло под риск-нейтральной мерой Q (красный пунктир);
+//   • оценка Монте-Карло под физической мерой P с перевзвешиванием
+//     (синий пунктир).
+//
+// Для MC-оценщиков также показаны 95% доверительные интервалы
+// (±1.96 × стандартная ошибка) в виде вертикальных отрезков.
+//
+// Параметры:
+//   pts      – вектор результатов GirsanovExperiment::Point, содержащий
+//              значения λ и все три оценки цены с их ошибками
+//   filename – имя выходного PDF-файла
+// -----------------------------------------------------------------------------
 inline void plot_girsanov_prices(
         const std::vector<GirsanovExperiment::Point>& pts,
         const std::string& filename) {
@@ -29,25 +58,21 @@ inline void plot_girsanov_prices(
     auto ax = gca();
     hold(ax, true);
 
-    // Прокси-линии для легенды (3 слота)
     { auto l = plot(ax, lambdas, bs_vals, "-");  l->line_width(3.0); l->color("black"); }
     { auto l = plot(ax, lambdas, rn_vals, "--"); l->line_width(2.2); l->color("red");   }
     { auto l = plot(ax, lambdas, p_vals,  "--"); l->line_width(2.2); l->color("blue");  }
 
-    // Error bars ±1.96σ для Q-MC (красный)
     {
         auto h = errorbar(ax, lambdas, rn_vals, rn_err,
                           error_bar::type::vertical, "--");
         h->color("red"); h->line_width(1.2); h->cap_size(4.f);
     }
-    // Error bars ±1.96σ для P-MC (синий)
     {
         auto h = errorbar(ax, lambdas, p_vals, p_err,
                           error_bar::type::vertical, "--");
         h->color("blue"); h->line_width(1.2); h->cap_size(4.f);
     }
 
-    // Параметры в заголовке (K и T из первой точки достаточно взять глобально)
     ax->title("Girsanov verification: three estimators of the same call price");
     ax->xlabel("lambda = (mu - r) / sigma   (market price of risk)");
     ax->ylabel("Call price");
@@ -57,8 +82,13 @@ inline void plot_girsanov_prices(
     cla();
 }
 
-// Вспомогательная: E[(S_T - K)^+^2] под лог-нормальной S_T с эффективным дрейфом mu_eff.
-// (Используется для точной теоретической кривой variance ratio.)
+// -----------------------------------------------------------------------------
+// Вспомогательная функция: второй момент выплаты колла (E[(S_T - K)^+²])
+// -----------------------------------------------------------------------------
+// Вычисляет теоретическое значение E[(S_T - K)^+²] для логнормального
+// распределения S_T с заданным дрейфом mu_eff. Используется для получения
+// точного выражения дисперсии оценки Монте-Карло при заданном λ.
+// -----------------------------------------------------------------------------
 inline double second_moment_call_(double S0, double K, double mu_eff,
                                   double sigma, double T) {
     const double k_inv_sqrt2 = 0.7071067811865475244;
@@ -72,16 +102,28 @@ inline double second_moment_call_(double S0, double K, double mu_eff,
          + K*K * Phi(d2);
 }
 
-// G1: стоимость смены меры — отношение дисперсий vs lambda (лог. шкала по Y).
+// -----------------------------------------------------------------------------
+// График отношения дисперсий оценок P-MC и Q-MC
+// -----------------------------------------------------------------------------
+// Строит зависимость Var(P-MC) / Var(Q-MC) от λ в логарифмическом масштабе.
+// Показывает:
+//   • теоретическую кривую для колл-опциона (чёрная сплошная линия),
+//     учитывающую корреляцию между выплатой и весом Радона–Никодима;
+//   • Монте-Карло оценку отношения дисперсий (синие кружки с пунктирной
+//     линией);
+//   • для справки – экспоненту exp(λ² T) (серый пунктир), которая является
+//     отношением дисперсий для выплат, некоррелированных с весом.
 //
-// Теоретическая кривая (для call-опциона) — АСИММЕТРИЧНАЯ:
-//   ratio(lambda) = [exp(lambda^2 * T) * M2(2r - mu, sigma, T) - exp(2rT)*C^2]
-//                 / [M2(r, sigma, T) - exp(2rT)*C^2]
+// График наглядно демонстрирует, что при λ > 0 вес гасит высокие выплаты,
+// уменьшая дисперсию (ratio < 1), а при λ < 0 – усиливает, вызывая рост
+// дисперсии (ratio ≫ 1).
 //
-// NB: exp(lambda^2*T) — дисперсия самой dQ/dP, но для взвешенного payoff'а колла
-// формула другая из-за корреляции payoff(S_T) и weight(W_T).
-// Для call при lambda>0 вес гасит высокие payoff'ы → variance падает (ratio<1).
-// Для call при lambda<0 вес усиливает высокие payoff'ы → variance растёт (ratio>>1).
+// Параметры:
+//   pts      – результаты эксперимента (используются λ и variance_ratio)
+//   filename – имя выходного PDF-файла
+//   T, r, sigma, K, S0 – параметры модели, необходимые для теоретической
+//                        кривой
+// -----------------------------------------------------------------------------
 inline void plot_girsanov_variance(
         const std::vector<GirsanovExperiment::Point>& pts,
         const std::string& filename,
@@ -89,7 +131,6 @@ inline void plot_girsanov_variance(
         double r = 0.05, double sigma = 0.20,
         double K = 100.0, double S0 = 100.0) {
 
-    // BS price (та же для всех mu)
     const double k_inv_sqrt2 = 0.7071067811865475244;
     auto Phi = [&](double x) { return 0.5 * std::erfc(-x * k_inv_sqrt2); };
     double sqT = std::sqrt(T);
@@ -97,7 +138,6 @@ inline void plot_girsanov_variance(
     double d2  = d1 - sigma*sqT;
     double C   = S0 * Phi(d1) - K * std::exp(-r*T) * Phi(d2);
 
-    // Var^Q(X_Q) — знаменатель
     double varQ = std::exp(-2*r*T) * second_moment_call_(S0, K, r, sigma, T) - C*C;
 
     std::vector<double> lambdas, ratios, theory_call, theory_rn;
@@ -105,7 +145,7 @@ inline void plot_girsanov_variance(
     for (const auto& pt : pts) {
         double lam    = pt.lambda;
         double mu     = r + lam*sigma;
-        double mu_eff = 2*r - mu;                                  // дрейф под Q' (для E[X_P^2])
+        double mu_eff = 2*r - mu;
         double M2pp   = second_moment_call_(S0, K, mu_eff, sigma, T);
         double varP   = std::exp(-2*r*T) * std::exp(lam*lam*T) * M2pp - C*C;
         double ratio_theory_call = std::max(varP / varQ, 1e-5);
@@ -113,21 +153,17 @@ inline void plot_girsanov_variance(
         lambdas    .push_back(lam);
         ratios     .push_back(std::max(pt.variance_ratio, 1e-5));
         theory_call.push_back(ratio_theory_call);
-        theory_rn  .push_back(std::exp(lam*lam*T));  // только для справки
+        theory_rn  .push_back(std::exp(lam*lam*T));
     }
 
     auto f = figure(true); f->size(1200, 680);
     auto ax = gca();
     hold(ax, true);
 
-    // Корректная теория для call-опциона (чёрный solid)
     { auto l = plot(ax, lambdas, theory_call, "-");  l->line_width(2.8); l->color("black"); }
-    // MC-результат (синий o--)
     { auto l = plot(ax, lambdas, ratios, "o--"); l->line_width(2.2); l->color("blue"); l->marker_size(7); }
-    // Референс: exp(lambda^2 * T) — дисперсия самой dQ/dP (серый пунктир)
     { auto l = plot(ax, lambdas, theory_rn, ":");    l->line_width(1.8); l->color({0.4f, 0.4f, 0.4f, 1.0f}); }
 
-    // Логарифмическая шкала по Y
     ax->y_axis().scale(axis_type::axis_scale::log);
 
     ax->title("Cost of changing measure: Var(P-MC) / Var(Q-MC) vs market price of risk lambda");

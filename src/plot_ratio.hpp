@@ -1,15 +1,32 @@
 #pragma once
+
+// =============================================================================
+// Визуализация модели отношения двух коррелированных GBM (RatioGBM)
+//
+// Файл содержит функции для построения графиков, иллюстрирующих поведение
+// процесса V_t = S_t / U_t при различных значениях корреляции ρ между
+// броуновскими движениями исходных активов.
+//
+// Графики строятся с использованием библиотеки Matplot++ (matplot).
+// Все функции сохраняют результат в PDF-файлы.
+// =============================================================================
+
 #include <array>
 #include <cmath>
 #include <limits>
 #include <matplot/matplot.h>
 #include <string>
 #include <vector>
+#include <sstream>
+#include <iomanip>
 #include "models/ratio_gbm.hpp"
+#include "console_utils.hpp"
 
 using namespace matplot;
 
-// Цветовая шкала cool-to-warm для rho = {-1, -0.5, 0, +0.5, +1}
+// -----------------------------------------------------------------------------
+// Цветовая палитра для различных значений корреляции ρ
+// -----------------------------------------------------------------------------
 static const std::vector<std::string> RHO_COLORS = {
     "blue", "green", "magenta", "orange", "red"
 };
@@ -17,7 +34,9 @@ static const std::vector<std::string> RHO_LABELS = {
     "rho=-1.0", "rho=-0.5", "rho=0.0", "rho=+0.5", "rho=+1.0"
 };
 
-// Суффикс для имени выходного PDF-файла по значению rho
+// -----------------------------------------------------------------------------
+// Вспомогательная функция: строковый тег для значения ρ
+// -----------------------------------------------------------------------------
 static std::string rho_tag(double rho) {
     if (rho < -0.9) return "m10";
     if (rho < -0.3) return "m05";
@@ -26,24 +45,39 @@ static std::string rho_tag(double rho) {
     return "p10";
 }
 
-// Сохраняет по одному PDF на каждый rho: пути V_t (оранжевый, полупрозрачный),
-// E[V_t] теория (чёрный), E[V_t] МК (красный пунктир), полоса ±1σ (чёрный пунктир).
-//
-// Все пять графиков имеют одинаковый диапазон Y — он вычисляется заранее по
-// глобальному охвату теор. среднего ±1.5σ по всем rho. Благодаря этому разница
-// в σ_V между rho=-1 и rho=+1 становится визуально очевидной.
-//
-// Паттерн двойной отрисовки: прокси-линии для легенды рисуются первыми (слоты 1–4),
-// затем все пути, затем средние и границы повторно поверх путей для акцента.
+// -----------------------------------------------------------------------------
+// Вывод таблицы результатов для RatioGBM
+// -----------------------------------------------------------------------------
+inline void ratio_table_header() {
+    std::vector<std::string> headers = {"rho", "mu_V", "sig_V", "E[V_T] MC", "E[V_T] th", "Err%"};
+    std::vector<int> widths = {7, 12, 12, 14, 14, 8};
+    print_table_header(headers, widths);
+}
+
+inline void ratio_table_row(const RatioGBMResult &r, double theory_E) {
+    double err = std::abs(r.mc_mean.back() - theory_E) / (std::abs(theory_E) + 1e-15) * 100.0;
+    std::ostringstream ss_rho, ss_mu, ss_sig, ss_mc, ss_th, ss_err;
+    ss_rho << std::fixed << std::setprecision(2) << r.rho;
+    ss_mu  << std::setprecision(5) << r.mu_V;
+    ss_sig << std::setprecision(5) << r.sigma_V;
+    ss_mc  << r.mc_mean.back();
+    ss_th  << theory_E;
+    ss_err << std::setprecision(3) << err;
+    print_table_row({ss_rho.str(), ss_mu.str(), ss_sig.str(),
+                     ss_mc.str(), ss_th.str(), ss_err.str()},
+                    {7, 12, 12, 14, 14, 8});
+}
+
+// -----------------------------------------------------------------------------
+// Построение траекторий процесса V_t для всех значений ρ
+// -----------------------------------------------------------------------------
 inline void plot_ratio_paths(
         const std::vector<double>& time_grid,
         const std::vector<RatioGBMResult>& results,
         const std::string& base) {
-    // Оранжевый, alpha=0.45: единый цвет по всем rho — плотность путей как единственная переменная
     static const std::array<float,4> path_col = {0.90f, 0.50f, 0.05f, 0.45f};
     size_t Ts = time_grid.size();
 
-    // Глобальный диапазон Y по теор. ±1.5σ (не по сырым путям — у них возможны выбросы)
     double y_lo =  std::numeric_limits<double>::max();
     double y_hi = -std::numeric_limits<double>::max();
     for (const auto& r : results) {
@@ -60,7 +94,6 @@ inline void plot_ratio_paths(
     for (size_t i = 0; i < results.size(); ++i) {
         const auto& r = results[i];
 
-        // Вычисляем границы ±1σ для текущего rho
         std::vector<double> upper(Ts), lower(Ts);
         for (size_t t = 0; t < Ts; ++t) {
             double sd = std::sqrt(std::max(r.theory_var[t], 0.0));
@@ -72,18 +105,15 @@ inline void plot_ratio_paths(
         auto ax = gca();
         hold(ax, true);
 
-        // Прокси-линии — слоты 1 (теория), 2 (МК), 3 (±1σ), 4 (пути)
         { auto l = plot(ax, time_grid, r.theory_mean, "-");  l->line_width(3.0); l->color("black"); }
         { auto l = plot(ax, time_grid, r.mc_mean,     "--"); l->line_width(2.0); l->color("red");   }
         { auto l = plot(ax, time_grid, upper,         "--"); l->line_width(1.8); l->color("black"); }
         { auto l = plot(ax, time_grid, r.paths[0]);          l->line_width(0.5); l->color(path_col); }
 
-        // Остальные пути — слотов легенды не занимают
         for (size_t j = 1; j < r.paths.size(); ++j) {
             auto l = plot(ax, time_grid, r.paths[j]); l->line_width(0.5); l->color(path_col);
         }
 
-        // Повторная отрисовка средних и границ поверх путей — новых слотов не добавляет
         { auto l = plot(ax, time_grid, lower,         "--"); l->line_width(1.8); l->color("black"); }
         { auto l = plot(ax, time_grid, upper,         "--"); l->line_width(1.8); l->color("black"); }
         { auto l = plot(ax, time_grid, r.theory_mean, "-");  l->line_width(3.0); l->color("black"); }
@@ -103,10 +133,9 @@ inline void plot_ratio_paths(
     }
 }
 
-// Сохраняет один PDF: Var[V_t] для всех rho на одних осях.
-// Теория (сплошная, цвет по rho) рисуется первой — получает 5 слотов легенды.
-// МК (пунктир, тот же цвет) рисуется после — слотов легенды не получает,
-// но идентифицируется по цвету совместно с теоретической кривой.
+// -----------------------------------------------------------------------------
+// Построение графиков дисперсии Var[V_t] для всех ρ на одном полотне
+// -----------------------------------------------------------------------------
 inline void plot_ratio_all_vars(
         const std::vector<double>& time_grid,
         const std::vector<RatioGBMResult>& results,
@@ -115,12 +144,10 @@ inline void plot_ratio_all_vars(
     auto ax = gca();
     hold(ax, true);
 
-    // Теоретические кривые первыми — слоты легенды 1–5
     for (size_t i = 0; i < results.size(); ++i) {
         auto lt = plot(ax, time_grid, results[i].theory_var, "-");
         lt->line_width(2.8); lt->color(RHO_COLORS[i]);
     }
-    // МК после — слотов легенды не получают (цвет совпадает с теорией)
     for (size_t i = 0; i < results.size(); ++i) {
         auto lm = plot(ax, time_grid, results[i].mc_var, "--");
         lm->line_width(1.5); lm->color(RHO_COLORS[i]);
