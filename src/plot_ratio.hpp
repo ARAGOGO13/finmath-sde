@@ -63,9 +63,9 @@ inline void ratio_table_row(const RatioGBMResult &r, double theory_E) {
     ss_mc  << r.mc_mean.back();
     ss_th  << theory_E;
     ss_err << std::setprecision(3) << err;
-    print_table_row({ss_rho.str(), ss_mu.str(), ss_sig.str(),
-                     ss_mc.str(), ss_th.str(), ss_err.str()},
-                    {7, 12, 12, 14, 14, 8});
+    print_table_row_with_error({ss_rho.str(), ss_mu.str(), ss_sig.str(),
+                                ss_mc.str(), ss_th.str(), ss_err.str()},
+                               {7, 12, 12, 14, 14, 8}, err);
 }
 
 // -----------------------------------------------------------------------------

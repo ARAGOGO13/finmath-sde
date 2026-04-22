@@ -10,6 +10,7 @@
 // =============================================================================
 inline void run_convergence_experiment() {
     using namespace std;
+    section("Euler vs Milshtein", "strong error e(dt) = E[|X_exact - X_scheme|]");
 
     const double T = 1.0;
     GeometricBrownianMotion gbm(0.05, 0.20);
