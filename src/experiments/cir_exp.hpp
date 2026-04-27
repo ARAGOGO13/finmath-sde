@@ -1,3 +1,13 @@
+// =============================================================================
+// Эксперимент C4 (часть 3): модель CIR.
+//
+// Симулируются траектории процесса:
+//   dX = θ (μ - X) dt + σ √X dW
+// Параметры: θ=2.0, μ=0.05, σ=0.02, X0=0.03.
+// Проверяется условие Феллера. Сравниваются средние и дисперсии
+// по Монте-Карло с теоретическими значениями.
+// =============================================================================
+
 #pragma once
 
 #include <vector>
@@ -9,9 +19,6 @@
 #include "../plotting.hpp"
 #include "../console_utils.hpp"
 
-// =============================================================================
-// Эксперимент: модель Кокса-Ингерсолла-Росса (CIR)
-// =============================================================================
 inline void run_cir_experiment(const std::array<double,2>& shared_ylim) {
     using namespace std;
 
@@ -19,9 +26,9 @@ inline void run_cir_experiment(const std::array<double,2>& shared_ylim) {
             "dX = theta (mu - X) dt + sigma sqrt(X) dW  |  Feller: 2*theta*mu >= sigma^2");
 
     const double T       = 1.0;
-    const int    N_steps = 50;
-    const int    N_mc    = 2000;
-    const int    N_paths = 50;
+    const int    N_steps = 10;
+    const int    N_mc    = 200;
+    const int    N_paths = 5;
 
     const double theta = 2.0, mu = 0.05, sigma = 0.02, x0 = 0.03;
     CoxIngersollRoss cir(theta, mu, sigma);

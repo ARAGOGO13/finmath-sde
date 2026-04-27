@@ -1,3 +1,9 @@
+// =============================================================================
+// Анализатор сильной сходимости схем Эйлера и Мильштейна для GBM.
+// Вычисляет среднюю ошибку E[|X_exact - X_scheme|] при разных шагах dt,
+// строит логарифмическую зависимость ошибки от dt и оценивает наклон.
+// =============================================================================
+
 #pragma once
 
 #include <cmath>
@@ -6,8 +12,6 @@
 #include <random>
 #include <vector>
 #include <sstream>
-#include "monte_carlo_engine.hpp"
-#include "sde_base.hpp"
 #include "console_utils.hpp"
 
 struct ConvergenceResult {
@@ -23,9 +27,12 @@ struct ConvergenceResult {
 
 class ConvergenceAnalyzer {
 public:
+    // num_paths  – число траекторий Монте-Карло для каждой дискретизации
+    // steps_list – набор значений числа шагов N (dt = T/N)
     ConvergenceAnalyzer(int num_paths = 2000, std::vector<int> steps_list = {8, 16, 32, 64, 128, 256, 512}) :
         num_paths_(num_paths), steps_list_(std::move(steps_list)) {}
 
+    // Запуск анализа для геометрического броуновского движения
     ConvergenceResult analyze_gbm(double mu, double sigma, double x0, double T) const {
         ConvergenceResult result;
         std::mt19937 gen(42);
@@ -44,12 +51,15 @@ public:
                     dW[k] = nd(gen) * sqrt_dt;
                     W_T += dW[k];
                 }
+                // Точное решение
                 double X_exact = x0 * std::exp((mu - 0.5 * sigma * sigma) * T + sigma * W_T);
 
+                // Схема Эйлера
                 double X_euler = x0;
                 for (int k = 0; k < N; ++k)
                     X_euler += mu * X_euler * dt + sigma * X_euler * dW[k];
 
+                // Схема Мильштейна
                 double X_milshtein = x0;
                 for (int k = 0; k < N; ++k) {
                     double s = sigma * X_milshtein;
@@ -71,7 +81,7 @@ public:
             result.log_milshtein.push_back(std::log(milshtein_err));
         }
 
-        // Вывод таблицы
+        // Вывод таблицы ошибок
         std::cout << "\n";
         std::vector<std::string> headers = {"Steps", "dt", "Euler error", "Milshtein error"};
         std::vector<int> widths = {10, 14, 18, 18};
@@ -86,7 +96,7 @@ public:
             print_table_row({ss_steps.str(), ss_dt.str(), ss_eu.str(), ss_mil.str()}, widths);
         }
 
-        // Наклоны
+        // Оценка наклонов в log-log
         result.euler_slope = linear_regression_slope(result.log_dt, result.log_euler);
         result.milshtein_slope = linear_regression_slope(result.log_dt, result.log_milshtein);
 
@@ -104,6 +114,7 @@ private:
     int num_paths_;
     std::vector<int> steps_list_;
 
+    // Оценка наклона линейной регрессии y по x
     static double linear_regression_slope(const std::vector<double> &x, const std::vector<double> &y) {
         int n = static_cast<int>(x.size());
         if (n < 2)

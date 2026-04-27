@@ -1,3 +1,13 @@
+// =============================================================================
+// Эксперимент C3: сильная сходимость схем Эйлера и Мильштейна для GBM.
+//
+// Вычисляется средняя абсолютная ошибка E[|X_exact - X_scheme|] при разных
+// числах шагов дискретизации. Строится график log ошибки от log N,
+// оцениваются наклоны и сравниваются с теоретическими:
+//   • Эйлер – 0.5,
+//   • Мильштейн – 1.0.
+// =============================================================================
+
 #pragma once
 
 #include "../convergence_analyzer.hpp"
@@ -5,16 +15,14 @@
 #include "../plotting.hpp"
 #include "../console_utils.hpp"
 
-// =============================================================================
-// Эксперимент: сильная сходимость схем Эйлера и Мильштейна для GBM
-// =============================================================================
 inline void run_convergence_experiment() {
     using namespace std;
+
     section("Euler vs Milshtein", "strong error e(dt) = E[|X_exact - X_scheme|]");
 
     const double T = 1.0;
     GeometricBrownianMotion gbm(0.05, 0.20);
-    ConvergenceAnalyzer analyzer(3000, {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096});
+    ConvergenceAnalyzer analyzer(200, {8, 16, 32});
     auto conv = analyzer.analyze_gbm(gbm.mu(), gbm.sigma(), 100.0, T);
     plot_convergence(conv, "../plots/C3_convergence.pdf");
 

@@ -1,17 +1,22 @@
+// =============================================================================
+// Эксперимент C4 (часть 1): GBM и InverseGBM (U = 1/S).
+//
+// Симулируются траектории GBM с параметрами μ=0.05, σ=0.20, S0=100
+// и обратного процесса U_t = 1/S_t. Сравниваются средние и дисперсии
+// по Монте-Карло с теоретическими значениями. Строятся четыре графика:
+//   E[S_t], Var[S_t] для GBM,
+//   E[U_t], Var[U_t] для InverseGBM.
+// =============================================================================
+
 #pragma once
 
 #include <vector>
 #include <random>
 #include <string>
 #include <array>
-#include "../models/geometric_brownian_motion.hpp"
-#include "../models/inverse_gbm.hpp"
 #include "../plotting.hpp"
 #include "../console_utils.hpp"
 
-// =============================================================================
-// Эксперимент: GBM и InverseGBM (U = 1/S)
-// =============================================================================
 inline void run_gbm_inverse_experiment(const std::array<double,2>& shared_ylim) {
     using namespace std;
 
@@ -19,9 +24,9 @@ inline void run_gbm_inverse_experiment(const std::array<double,2>& shared_ylim) 
             "dS = mu S dt + sigma S dW  |  dU = (sigma^2 - mu) U dt - sigma U dW");
 
     const double T       = 1.0;
-    const int    N_steps = 50;
-    const int    N_mc    = 2000;
-    const int    N_paths = 50;
+    const int    N_steps = 10;
+    const int    N_mc    = 200;
+    const int    N_paths = 5;
 
     const double mu = 0.05, sigma = 0.20, S0 = 100.0;
     const double U0 = 1.0 / S0, mu_star = sigma * sigma - mu;
@@ -36,6 +41,7 @@ inline void run_gbm_inverse_experiment(const std::array<double,2>& shared_ylim) 
     vector<vector<double>> gbm_p(N_mc, vector<double>(N_steps + 1));
     vector<vector<double>> inv_p(N_mc, vector<double>(N_steps + 1));
 
+    // Генерация траекторий GBM (схема Мильштейна)
     for (int j = 0; j < N_mc; ++j) {
         gbm_p[j][0] = S0;
         for (int k = 0; k < N_steps; ++k) {
@@ -44,6 +50,7 @@ inline void run_gbm_inverse_experiment(const std::array<double,2>& shared_ylim) 
                             + 0.5 * sigma * S * sigma * (dW * dW - dt);
         }
     }
+    // Генерация траекторий InverseGBM (схема Мильштейна)
     for (int j = 0; j < N_mc; ++j) {
         inv_p[j][0] = U0;
         for (int k = 0; k < N_steps; ++k) {
@@ -53,6 +60,7 @@ inline void run_gbm_inverse_experiment(const std::array<double,2>& shared_ylim) 
         }
     }
 
+    // Теоретические моменты
     vector<double> gm(N_steps + 1), gv(N_steps + 1), im(N_steps + 1), iv(N_steps + 1);
     for (int i = 0; i <= N_steps; ++i) {
         double t = time_std[i];

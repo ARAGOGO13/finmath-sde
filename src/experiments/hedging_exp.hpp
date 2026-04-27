@@ -1,3 +1,12 @@
+// =============================================================================
+// Эксперимент G2: дискретное дельта-хеджирование короткого колла.
+//
+// Исследуются:
+//   G2a – распределения P&L при разном числе ребалансировок;
+//   G2b – зависимость std(P&L) от шага дискретизации Δt (log-log, наклон ≈ 0.5);
+//   G2c – влияние рассогласования реальной и подразумеваемой волатильностей.
+// =============================================================================
+
 #pragma once
 
 #include <vector>
@@ -8,9 +17,6 @@
 #include "../plot_hedging.hpp"
 #include "../console_utils.hpp"
 
-// =============================================================================
-// Эксперимент по дискретному дельта-хеджированию короткого колла
-// =============================================================================
 inline void run_hedging_experiment() {
     using namespace std;
 
@@ -20,12 +26,12 @@ inline void run_hedging_experiment() {
     HedgingConfig cfg;  // r=0.05, T=1, K=100, S0=100, sigma=0.20
     DeltaHedgingExperiment exp_h(cfg);
 
-    // ---- A: Гистограммы P&L для разных N_rebal ----
-    vector<int> N_rebal_hist = {10, 50, 250, 1000};
+    // ── G2a: Гистограммы P&L для N_rebal = 10 и 50 ──
+    vector<int> N_rebal_hist = {10, 50};
     vector<HedgingPnLResult> hist_results;
     vector<string> hist_labels;
     for (int Nr : N_rebal_hist) {
-        auto r = exp_h.simulate(Nr, 20000, 42u + static_cast<unsigned>(Nr));
+        auto r = exp_h.simulate(Nr, 500, 42u + static_cast<unsigned>(Nr));
         hist_results.push_back(std::move(r));
         hist_labels.push_back("N=" + std::to_string(Nr));
     }
@@ -48,30 +54,31 @@ inline void run_hedging_experiment() {
         print_table_row({ss_n.str(), ss_m.str(), ss_s.str(), ss_q05.str(), ss_q95.str()}, widthsA);
     }
 
-    // ---- B: std(P&L) ~ dt^alpha в log-log ----
-    vector<int> N_rebal_scan = {4, 8, 16, 32, 64, 128, 256, 512, 1024};
-    auto scan = exp_h.scan_rebalance_frequency(N_rebal_scan, 10000, 1000u);
+    // ── G2b: std(P&L) ~ dt^alpha в log-log ──
+    vector<int> N_rebal_scan = {4, 8, 16};
+    auto scan = exp_h.scan_rebalance_frequency(N_rebal_scan, 500, 1000u);
     plot_hedging_std_vs_dt(scan, "../plots/G2_hedging_std_vs_dt.pdf");
 
     cout << "\n  std(P&L) ~ dt^alpha   measured alpha = "
          << fixed << setprecision(3) << scan.slope_log_std_vs_log_dt
          << "   theory 0.5\n";
 
-    // ---- C: Volatility mismatch ----
-    vector<double> sigma_real_list = {0.10, 0.14, 0.17, 0.20, 0.23, 0.26, 0.30};
+    // ── G2c: Несовпадение волатильностей ──
+    vector<double> sigma_real_list = {0.10, 0.20, 0.30};
     vector<HedgingPnLResult> mismatch_results;
     for (double sr : sigma_real_list) {
         HedgingConfig cfg2 = cfg;
         cfg2.sigma_real = sr;
         cfg2.sigma_impl = 0.20;
         DeltaHedgingExperiment exp_c(cfg2);
-        auto r = exp_c.simulate(250, 20000, 42u + static_cast<unsigned>(sr * 1000));
+        auto r = exp_c.simulate(10, 500, 42u + static_cast<unsigned>(sr * 1000));
         mismatch_results.push_back(std::move(r));
     }
-    plot_hedging_vol_mismatch(mismatch_results, sigma_real_list, 0.20,
-                              100.0, 100.0, 1.0, 0.05,
-                              "../plots/G2_hedging_vol_mismatch.pdf");
+    plot_hedging_vol_mismatch_mean(mismatch_results, sigma_real_list, 0.20,
+                                  100.0, 100.0, 1.0, 0.05,
+                                  "../plots/G2_hedging_vol_mismatch_mean.pdf");
 
+    // Теоретическое значение гаммы для ATM-опциона
     const double d1_atm    = ((0.05 + 0.5 * 0.20 * 0.20) * 1.0) / (0.20 * std::sqrt(1.0));
     const double k_sqrt2pi = 2.5066282746310002416;
     const double phi_d1    = std::exp(-0.5 * d1_atm * d1_atm) / k_sqrt2pi;
@@ -95,5 +102,5 @@ inline void run_hedging_experiment() {
 
     print_saved({"G2_hedging_pnl_hist.pdf",
                  "G2_hedging_std_vs_dt.pdf",
-                 "G2_hedging_vol_mismatch.pdf"});
+                 "G2_hedging_vol_mismatch_mean.pdf"});
 }

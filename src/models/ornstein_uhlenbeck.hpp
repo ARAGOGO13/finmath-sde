@@ -1,37 +1,38 @@
-#pragma once
-#include <cmath>
-#include "../sde_base.hpp"
-
 // =============================================================================
-// Модель Орнштейна–Уленбека (Vasicek)
+// Модель Орнштейна–Уленбека (процесс Vasicek).
 //
 // Стохастическое дифференциальное уравнение:
 //   dX_t = θ (μ - X_t) dt + σ dW_t
 //
-// где:
-//   θ (theta) – скорость возврата к среднему (force of mean reversion)
-//   μ (mu)    – долгосрочное среднее значение процесса
-//   σ (sigma) – волатильность (постоянная)
-//
-// Процесс X_t обладает свойством возврата к уровню μ с интенсивностью θ.
-// При t→∞ математическое ожидание стремится к μ, дисперсия – к σ²/(2θ).
+// Процесс обладает свойством возврата к среднему μ со скоростью θ.
+// Диффузия постоянна, поэтому схема Эйлера и Мильштейна совпадают.
+// Используется для моделирования процентных ставок и других средневозвратных величин.
 // =============================================================================
+
+#pragma once
+#include <cmath>
+#include "../sde_base.hpp"
 
 class OrnsteinUhlenbeck : public SDE {
 public:
     OrnsteinUhlenbeck(double theta = 5.0, double mu = 0.0, double sigma = 1.0) :
         theta_(theta), mu_(mu), sigma_(sigma) {}
 
+    // Коэффициент сноса: θ (μ - x)
     double drift(double x, double) const override { return theta_ * (mu_ - x); }
 
+    // Коэффициент диффузии: σ (постоянный)
     double diffusion(double, double) const override { return sigma_; }
 
+    // Производная коэффициента диффузии: 0 (постоянная волатильность)
     double diffusion_derivative(double, double) const override { return 0.0; }
 
+    // Точное математическое ожидание в момент t
     double exact_mean(double x0, double t) const {
         return x0 * std::exp(-theta_ * t) + mu_ * (1.0 - std::exp(-theta_ * t));
     }
 
+    // Точная дисперсия в момент t
     double exact_var(double t) const {
         return (sigma_ * sigma_) / (2.0 * theta_) * (1.0 - std::exp(-2.0 * theta_ * t));
     }
